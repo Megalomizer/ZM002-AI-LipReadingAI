@@ -1,5 +1,5 @@
 torch==2.8.0+cpu
-torchvision==0.23.0+cpu
-opencv-python==4.12.0.88
-dlib==20.0.0
-mediapipe==0.10.21
+torchvision
+opencv-python
+dlib
+mediapipe
