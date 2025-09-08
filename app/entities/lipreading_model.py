@@ -1,4 +1,4 @@
-from ..core.constants import VISUAL_MODEL
+from core.constants import VISUAL_MODEL
 
 class LipReadingModel:
     """

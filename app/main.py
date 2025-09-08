@@ -19,7 +19,7 @@ def main():
             refined = ollama_client.interpret(prediction)
             print(f"Prediction: {refined}\n")
 
-        video_client.show_frame(frame)
+        video_client.show_frame()
         if video_client.quit_requested():
             break
 

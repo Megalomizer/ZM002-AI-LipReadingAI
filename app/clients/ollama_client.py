@@ -1,5 +1,5 @@
 import subprocess
-from ..core.constants import OLLAMA_MODEL, OLLAMA_LIPREAD_PROMPT
+from core.constants import OLLAMA_MODEL, OLLAMA_LIPREAD_PROMPT
 
 class OllamaClient:
     """
