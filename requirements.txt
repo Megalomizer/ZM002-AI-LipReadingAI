@@ -1,5 +1,9 @@
 torch==2.8.0+cpu
 torchvision
+numpy
 opencv-python
 dlib
 mediapipe
+tensorflow
+keras
+transformers
