@@ -1,79 +1,108 @@
 import time
-import threading
-from queue import Queue, Empty
-from core.constants import FRAMES_COLLECTION
 
-from clients.video_client import VideoClient
-from clients.database_client import DatabaseClient
-from clients.detection_client import DetectionClient
-from entities.lipreading_model import LipReadingModel
-from clients.ollama_client import OllamaClient
+import cv2
+import mediapipe
+
 
 def main():
-    db_client = DatabaseClient()
-    video_client = VideoClient()
-    video_client.start()
+    capture = cv2.VideoCapture(0)
 
-    processing_interval = 0.5
+    min_detect_confidence = 0.7
+    min_track_confidence = 0.7
 
-    task_queue: Queue[list] = Queue(maxsize=1)
-    stop_event = threading.Event()
+    mp_holistic = mediapipe.solutions.holistic
+    holistic_model = mp_holistic.Holistic(
+        refine_face_landmarks=True,
+        min_detection_confidence=min_detect_confidence,
+        min_tracking_confidence=min_detect_confidence,
+    )
+    mp_drawing = mediapipe.solutions.drawing_utils
 
-    def processor_worker(q: Queue, stop_event: threading.Event):
-        while not stop_event.is_set() or not q.empty():
-            try:
-                window = q.get(timeout=0.1)
-            except Empty:
-                continue
+    previous_time = 0
 
-            try:
-                # Heavy Duty loads
-                print("\n-----------------------------------------------\nStarting task...")
-                time.sleep(10)
-                print("\nTask Completed!\n-----------------------------------------------")
-            finally:
-                q.task_done()
+    while True:
+        # Capture frames
+        has_captured, frame = capture.read()
+        if not has_captured:
+            continue
 
-    def producer(q: Queue, stop_event: threading.Event):
-        last_enqueued_frame = 0.0
-        while not stop_event.is_set():
-            now = time.time()
-            if now - last_enqueued_frame >= processing_interval:
-                last_enqueued_frame = now
-                frames = video_client.get_buffer_window()
-                if len(frames) >= FRAMES_COLLECTION:
-                    window = frames[-FRAMES_COLLECTION:] # last x amount of frames as set by the constant
-                    try:
-                        # Blocking put — ensures no loss, may increase latency if worker is slower.
-                        q.put(window, timeout=0.5)
-                    except Exception:
-                        # If we can't enqueue within timeout (e.g., shutdown), try again next loop.
-                        pass
-            # Small sleep to avoid busy-waiting
-            time.sleep(0.001)
+        # Flip frame
+        frame = cv2.flip(frame, 1)
 
-    worker = threading.Thread(target=processor_worker, args=(task_queue, stop_event), daemon=True)
-    producer_thread = threading.Thread(target=producer, args=(task_queue, stop_event), daemon=True)
-    worker.start()
-    producer_thread.start()
+        # Convert to RGB to process frame with mediapipe for landmarks and revert to BGR
+        processed_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        processed_frame.flags.writeable = False
+        results = holistic_model.process(processed_frame)
+        processed_frame.flags.writeable = True
+        processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
 
-    try:
-        while True:
-            video_client.show_latest_frame()
+        # Draw the landmarks on the frame
+        mp_drawing.draw_landmarks(
+            processed_frame,
+            results.face_landmarks,
+            mp_holistic.FACEMESH_CONTOURS,
+            mp_drawing.DrawingSpec(
+                color=(255, 0, 255),
+                thickness=1,
+                circle_radius=1,
+            ),
+            mp_drawing.DrawingSpec(
+                color=(0, 255, 255),
+                thickness=1,
+                circle_radius=1,
+            ),
+        )
 
-            if video_client.quit_requested():
-                break
-    finally:
-        # Initiate shutdown
-        # 1. Stop producer so no new tasks arrive
-        stop_event.set()
-        producer_thread.join(timeout=1.0)
+        # Grayscale the frame
+        processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
 
-        # 3. Wait for all queued tasks to finish to avoid data loss
-        worker.join(timeout=1.0)
+        # Crop the frame
+        h, w = processed_frame.shape[:2]
 
-        # 4. Release resources
-        video_client.release()
+        if results and results.face_landmarks:
+            mouth_idx_set = set()
+            for conn in mp_holistic.FACEMESH_CONTOURS:
+                mouth_idx_set.update(conn)
+            mouth_indices = sorted(mouth_idx_set)
+
+            xs, ys = [], []
+            for i in mouth_indices:
+                lm = results.face_landmarks.landmark[i]
+                x_px = int(lm.x * w)
+                y_px = int(lm.y * h)
+                xs.append(x_px); ys.append(y_px)
+
+            if xs and ys:
+                pad = 10
+                x_min = max(0, min(xs) - pad); x_max = min(w, max(xs) + pad)
+                y_min = max(0, min(ys) - pad); y_max = min(h, max(ys) + pad)
+
+                cx = (x_min + x_max) // 2
+                cy = (y_min + y_max) // 2
+
+                side = max(x_max - x_min, y_max - y_min)
+                half_side = side // 2
+
+                x_min = max(0, cx - half_side); x_max = min(w, cx + half_side)
+                y_min = max(0, cy - half_side); y_max = min(h, cy + half_side)
+
+                processed_frame = processed_frame[y_min:y_max, x_min:x_max]
+                processed_frame = cv2.resize(processed_frame, (500,500), interpolation=cv2.INTER_LANCZOS4)
+
+        # Get FPS couter and add on top of frame for show
+        current_time = time.time()
+        fps = 1 / (current_time - previous_time)
+        previous_time = current_time
+        cv2.putText(processed_frame, f"FPS: {int(fps)}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 2)
+
+        cv2.imshow("Original Frame", frame)
+        cv2.imshow("Processed Frame", processed_frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    capture.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
