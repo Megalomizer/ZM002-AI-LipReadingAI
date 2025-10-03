@@ -60,7 +60,7 @@ def main():
         )
 
         # Grayscale the frame
-        # processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
+        processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
 
         # Crop the frame
         h, w = processed_frame.shape[:2]
