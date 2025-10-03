@@ -14,17 +14,23 @@ def main():
     holistic_model = mp_holistic.Holistic(
         refine_face_landmarks=True,
         min_detection_confidence=min_detect_confidence,
-        min_tracking_confidence=min_detect_confidence,
+        min_tracking_confidence=min_track_confidence,
     )
     mp_drawing = mediapipe.solutions.drawing_utils
 
     previous_time = 0
+    no_captures_loop = 0
 
     while True:
         # Capture frames
         has_captured, frame = capture.read()
         if not has_captured:
+            no_captures_loop += 1
+            if no_captures_loop >= 10:
+                break
             continue
+
+        no_captures_loop = 0
 
         # Flip frame
         frame = cv2.flip(frame, 1)
@@ -54,26 +60,30 @@ def main():
         )
 
         # Grayscale the frame
-        processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
+        # processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
 
         # Crop the frame
         h, w = processed_frame.shape[:2]
 
         if results and results.face_landmarks:
-            mouth_idx_set = set()
+            face_idx_set = set()
             for conn in mp_holistic.FACEMESH_CONTOURS:
-                mouth_idx_set.update(conn)
-            mouth_indices = sorted(mouth_idx_set)
+                face_idx_set.update(conn)
+            face_indices = sorted(face_idx_set)
+
+            inner_lip_indices = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308]
+            outer_lip_indices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291]
+            lip_indices = sorted(inner_lip_indices + outer_lip_indices)
 
             xs, ys = [], []
-            for i in mouth_indices:
+            for i in lip_indices:
                 lm = results.face_landmarks.landmark[i]
                 x_px = int(lm.x * w)
                 y_px = int(lm.y * h)
                 xs.append(x_px); ys.append(y_px)
 
             if xs and ys:
-                pad = 10
+                pad = 12
                 x_min = max(0, min(xs) - pad); x_max = min(w, max(xs) + pad)
                 y_min = max(0, min(ys) - pad); y_max = min(h, max(ys) + pad)
 
